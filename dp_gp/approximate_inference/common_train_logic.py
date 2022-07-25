@@ -1,0 +1,114 @@
+import numpy as np
+import tensorflow as tf
+from tqdm import tqdm
+import gpflow
+
+from ps_svgp import SVGP_psg
+
+dtype = np.float64
+gpflow.config.set_default_float(dtype)
+
+
+def make_SVGP_model(
+    num_inducing: int,
+    num_data: int,
+    kernel=gpflow.kernels.SquaredExponential(),
+    likelihood=gpflow.likelihoods.Gaussian(),
+    learnable_inducing_variables: bool = False,
+):
+    """ Creates a variational free enery (VFE) GP approximation model.
+    
+        Args:
+            num_inducing (int): Number of inducing points
+            num_data (int): Number of samples in dataset
+            kernel (fn): Kernel function for GP model
+            likelihood (fn): Likelihood function for GP model
+            learnable_inducing_variables (bool): Whether to learning inducing input locations or leave them fixed
+    """
+    Z = np.random.uniform(-1, 1, size=(num_inducing, 1))
+    model = SVGP_psg(kernel, likelihood, Z, num_data=num_data)
+    gpflow.set_trainable(
+        m.inducing_variable, False
+    ) if learnable_inducing_variables else 0
+    return model
+
+
+def optimization_step(
+    model: gpflow.models.SVGP,
+    batch: Tuple[tf.Tensor, tf.Tensor],
+    optimizer: tf.keras.optimizers.Optimizer,
+    apply_dp: bool = True,
+):
+    """ Performs a single stochastic variatonal inference optimization update step given a model, mini-batch and optimizer. If apply_dp is set to True,
+        per-sample gradients are computing in vectorized fashion and privatised before being applied.
+
+        Args:
+            model (gpflow.models.SVGP): an SVGP gpflow model, which inducing variables and hyperparameters we would like to learn
+            batch (Tuple[tf.Tensor, tf.Tensor]): a mini-batch of data
+            optimizer (tf.keras.optimizers.Optimizer): An optimizer instance
+            apply_dp (bool): Whether to apply the Gaussian mechanism of differential privacy to the update step
+    """
+
+    if not isinstance(model, SVGP_psg):
+        raise ValueError(
+            "Computing per sample gradients requires model to be an instance of the SVGP_psg class"
+        )
+    with tf.GradientTape(watch_accessed_variables=False, persistent=True) as tape:
+        tape.watch(model.trainable_variables)
+        loss = model.training_loss(batch)
+        batch_loss = tf.math.reduce_mean(loss)
+        if apply_dp:
+            dp_grads = optimizer.get_gradients(loss, model.trainable_variables)
+            optimizer.apply_gradients(zip(dp_grads, model.trainable_variables))
+        else:
+            grads = tape.gradient(batch_loss, model.trainable_variables)
+            optimizer.apply_gradients(zip(grads, model.trainable_variables))
+    return batch_loss
+
+
+def simple_training_loop(
+    model: gpflow.models.SVGP,
+    train_dataset: tf.data.Dataset,
+    optimizer: tf.keras.optimizers.Optimizer,
+    batch_size: int=256,
+    epochs: int = 5,
+    logging_batch_freq: int = 10,
+    apply_dp:bool = True
+):
+    """ Runs an SGD-based VFE optimization precedure for GP model with given specified parameters.
+        
+        Args:
+            model (gpflow.models.SVGP): model to train
+            train_dataset (tf.data.Dataset): dataset to train model with
+            optimizer (tf.keras.optimizers.Optimizer): optimizer to use for training
+            batch_size (int): Batch size for training, larger batches means more accurate and computationally expensive gradient computations. 
+                                Larger batch sizes worsens privacy guarantee (worse subsampling amplification) 
+            epochs (int): Number of epochs to train for
+            logging_batch_freq (int): Logging frequency (for progress bar)
+            apply_dp (bool): whether to apply differential privacy
+    """
+
+    if not isinstance(
+        opt,
+        (
+            VectorizedDPKerasAdagradOptimizer,
+            VectorizedDPKerasAdamOptimizer,
+            VectorizedDPKerasSGDOptimizer,
+        ),
+    ):
+        raise Warning("Caution! Using non-differentially private optimizer")
+        if apply_dp:
+            raise ValueError(f"Can't apply differential privacy with non-private optimizer: {optimizer}")
+    losses, elbos = [], []
+    tf_optimization_step = tf.function(optimization_step)
+    with tqdm(total=epochs * len(train_dataset)) as pbar:
+        for e in range(epochs):
+            for i, (x_batch, y_batch) in enumerate(train_dataset):
+                loss = tf_optimization_step(model, (x_batch, y_batch), dp=DP)
+                losses.append(loss)
+                pbar.update()
+                if i % logging_batch_freq == 0:
+                    elbo = tf.math.reduce_mean(model.elbo(data))
+                    elbos.append(elbo.numpy())
+                    pbar.set_description(f"loss: {loss:.3f} ELBO: {elbo.numpy():.3f}")
+    return losses, elbos
