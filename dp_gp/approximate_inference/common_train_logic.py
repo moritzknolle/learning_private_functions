@@ -19,6 +19,7 @@ f64 = lambda x: np.array(x).astype(np.float64)
 def make_SVGP_model(
     num_inducing: int,
     num_data: int,
+    Z_init:np.ndarray=None,
     kernel=gpflow.kernels.SquaredExponential(),
     likelihood=gpflow.likelihoods.Gaussian(),
     num_features: int = 1,
@@ -33,11 +34,13 @@ def make_SVGP_model(
         likelihood (fn): Likelihood function for GP model
         learnable_inducing_variables (bool): Whether to learning inducing input locations or leave them fixed
     """
-    Z = np.random.uniform(-1, 1, size=(num_inducing, num_features))
-    model = SVGP_psg(kernel, likelihood, Z, num_data=num_data)
+    if Z_init is None:
+        Z_init = np.random.uniform(-1, 1, size=(num_inducing, num_features))
+    assert Z_init.shape[0] == num_inducing
+    model = SVGP_psg(kernel, likelihood, Z_init, num_data=num_data)
     gpflow.set_trainable(
-        m.inducing_variable, False
-    ) if learnable_inducing_variables else 0
+        model.inducing_variable, False
+    ) if not learnable_inducing_variables else 0
     return model
 
 
