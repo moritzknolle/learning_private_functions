@@ -1,0 +1,3 @@
+,Dataset,Model,epsilon,RMSE (test),NLL (test),run-time (s)
+0,housing,SVGP,inf,7.658 ± 1.498,15.738 ± 5.414,12.583271423975626
+1,housing,Local-DP,1.0,7.658 ± 1.498,13.367 ± 4.473,11.963794708251953
