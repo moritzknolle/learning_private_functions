@@ -15,7 +15,7 @@ def clip_gradients_vmap(g, l2_norm_clip):
   div = tf.maximum(global_norm / l2_norm_clip, 1.)
   clipped_flat = [g / div for g in grads_flat]
   clipped_grads = tf.nest.pack_sequence_as(g, clipped_flat)
-  return clipped_grads
+  return clipped_grads, global_norm
 
 
 def make_vectorized_keras_optimizer_class(cls):
@@ -149,7 +149,7 @@ def make_vectorized_keras_optimizer_class(cls):
                                    if self._unconnected_gradients_to_zero else
                                    tf.UnconnectedGradients.NONE))
 
-        clipped_gradients = tf.vectorized_map(
+        clipped_gradients, norms = tf.vectorized_map(
             lambda g: clip_gradients_vmap(g, self._l2_norm_clip), jacobian)
 
         def reduce_noise_normalize_batch(g):
@@ -196,7 +196,7 @@ def make_vectorized_keras_optimizer_class(cls):
         clipped_grads = clip_gradients_vmap(grads_list, self._l2_norm_clip)
         return clipped_grads
 
-      clipped_grads = tf.vectorized_map(process_microbatch, microbatch_losses)
+      clipped_grads, norms = tf.vectorized_map(process_microbatch, microbatch_losses)
 
       def reduce_noise_normalize_batch(stacked_grads):
         summed_grads = tf.reduce_sum(input_tensor=stacked_grads, axis=0)
@@ -208,7 +208,7 @@ def make_vectorized_keras_optimizer_class(cls):
 
       final_grads = tf.nest.map_structure(reduce_noise_normalize_batch,
                                           clipped_grads)
-      return final_grads
+      return final_grads, norms
 
     def apply_gradients(self, *args, **kwargs):
       """DP-SGD version of base class method."""
