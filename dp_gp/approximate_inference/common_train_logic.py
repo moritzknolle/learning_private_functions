@@ -5,7 +5,7 @@ from tqdm import tqdm
 from typing import Tuple
 import warnings
 
-from dp_gp.approximate_inference.ps_svgp import SVGP_psg
+from dp_gp.approximate_inference.psg_svgp import SVGP_psg
 from dp_gp.dp_tools.dp_gd_optimizer import (
     VectorizedDPKerasAdagradOptimizer,
     VectorizedDPKerasAdamOptimizer,

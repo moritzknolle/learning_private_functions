@@ -7,6 +7,18 @@ import pandas as pd
 from absl import flags, app
 import matplotlib.pyplot as plt
 from gpflow.utilities import print_summary
+from sklearn.preprocessing import MinMaxScaler
+from tensorflow_privacy.privacy.analysis.compute_noise_from_budget_lib import (
+    compute_noise,
+)
+# gpu setup
+gpus = tf.config.list_physical_devices('GPU')
+print("\n GPU", gpus)
+try:
+  tf.config.experimental.set_memory_growth(gpus[0], True)
+except:
+  print("Couldn't set flexible memory growth, found GPU", gpus)
+
 
 # add parent directory to sys.path
 currentdir = os.path.dirname(os.path.abspath(inspect.getfile(inspect.currentframe())))
@@ -18,18 +30,19 @@ from dp_gp.approximate_inference.common_train_logic import (
     make_SVGP_model,
     simple_training_loop,
 )
+from dp_gp.dp_tools.dp_gd_optimizer import VectorizedDPKerasAdagradOptimizer
 
 # Hyperparameters
 FLAGS = flags.FLAGS
 flags.DEFINE_integer("batch_size", 100, "batch size for training")
 flags.DEFINE_integer("num_inducing", 512, "Number of inducing variables")
-flags.DEFINE_float("lr", 0.01, "learning rate")
-flags.DEFINE_integer("epochs", 50, "number of epochs")
+flags.DEFINE_float("lr", 1e-2, "learning rate")
+flags.DEFINE_float("l2_clip", 10.0, "clipping treshold for DP-SGD")
+flags.DEFINE_integer("epochs", 200, "number of epochs")
 flags.DEFINE_bool("save_results", True, "whether to dump results to a .csv file")
-flags.DEFINE_integer("max_observations", 300, "max number of observations per dataset. Used to select suitable datasets from UCI repository")
-flags.DEFINE_integer("n_folds", 3, "number of folds to perform for cross-validation")
-flags.DEFINE_float("epsilon", 1.0, "privacy budget")
-flags.DEFINE_float("delta", 0.01, "failure probability of privacy guarantee (for Gaussian mechanism)")
+flags.DEFINE_integer("n_folds", 5, "number of folds to perform for cross-validation")
+flags.DEFINE_float("epsilon", 2.0, "privacy budget")
+flags.DEFINE_float("delta_ldp", 0.01, "failure probability of privacy guarantee (for Gaussian mechanism)")
 
 # for reproducible experiments
 make_deterministic(seed=42)
@@ -44,31 +57,47 @@ def main(argv):
         "NLL (test)": [],
         "run-time (s)": [],
     }
-    # datasets = [
-    #      name
-    #      for name, (n_observations, n_dimensions) in all_datasets.items()
-    #      if n_observations > FLAGS.max_observations
-    # ]
-    datasets = ['concrete']
+    datasets = ['energy', 'bike', 'elevators', 'parkinsons']
     print("Performing benchmark on Datasets:", datasets)
     mse = tf.keras.losses.MeanSquaredError()
 
     for dataset_name in datasets:
         data = Dataset(dataset_name)
-        for mode in ["SVGP", "Local-DP"]:
+        for mode in ["SVGP", "Local-DP", "DP-SVGP"]:
             start_time = time.time()
             nlp_vals = []
             mse_vals = []
             model = None
             gc.collect()
             for n in range(FLAGS.n_folds):
+                # get cross-val splot
                 x_train, y_train, x_test, y_test = data.get_split(split=n)
+                # normalize
+                x_scaler = MinMaxScaler().fit(x_train)
+                y_scaler = MinMaxScaler().fit(y_train)
+                x_train, x_test = x_scaler.transform(x_train), x_scaler.transform(x_test)
+                y_train, y_test = y_scaler.transform(y_train), y_scaler.transform(y_test)
+                # setup training for different modes
                 if mode == "Local-DP":
+                    # if we were complete kosher these max and min calculations would have to be privatised as well
                     x_sens = np.max(x_train) - np.min(x_train)
                     y_sens = np.max(y_train) - np.min(y_train)
                     print(f"\n \n ...... sens x: {x_sens}, y:{y_sens}")
                     x_train = laplace_mechanism(x_train, eps=FLAGS.epsilon, delta=0.0, sens=x_sens)
                     y_train = laplace_mechanism(y_train, eps=FLAGS.epsilon, delta=0.0, sens=y_sens)
+                elif mode == "DP-SVGP":
+                    NOISE_MULT = compute_noise(
+                            n=len(x_train),
+                            batch_size=FLAGS.batch_size,
+                            target_epsilon=FLAGS.epsilon,
+                            epochs=FLAGS.epochs,
+                            delta= round(1/(len(x_train)), 5),
+                            noise_lbd=0.05,
+                        )
+                    print(f"found noise multiplier: {NOISE_MULT} for target epsilon: {FLAGS.epsilon}")
+                    optimizer = VectorizedDPKerasAdagradOptimizer(l2_norm_clip=FLAGS.l2_clip, noise_multiplier=NOISE_MULT, lr=FLAGS.lr)
+                elif mode == "DP-SVGP" or mode == "SVGP":
+                    optimizer = tf.keras.optimizers.Adam(FLAGS.lr)
                 N = x_train.shape[0]
                 feature_dim = x_train.shape[1]
                 lengthscales=np.random.uniform(0.1, 5.0, size=(feature_dim))
@@ -77,28 +106,26 @@ def main(argv):
                     num_inducing=FLAGS.num_inducing, num_data=N, num_features=feature_dim, kernel=kernel
                 )
                 print_summary(model)
-                optimizer = tf.keras.optimizers.Adam(lr=1e-3)
+                apply_dp = (mode == "DP-SVGP")
+                print("applying dp:", apply_dp)
+                # train model
                 simple_training_loop(
                     model=model,
                     data=(f64(x_train), f64(y_train)),
                     optimizer=optimizer,
                     epochs=FLAGS.epochs,
                     batch_size=FLAGS.batch_size,
-                    apply_dp=False,
+                    apply_dp=apply_dp,
                 )
+                # get val-set metrics
                 y_pred, _ = model.predict_f(f64(x_test))
                 y_pred = np.array(y_pred)
-                #print("y_test", y_test)
-                #print("\n y_pred", y_pred)
                 test_mse = mse(y_test, y_pred).numpy()
                 nlp = -1 * model.predict_log_density((f64(x_test), f64(y_test))).numpy().mean()
                 mse_vals.append(np.sqrt(test_mse))
                 nlp_vals.append(nlp)
-                plt.scatter(y_test, y_pred)
-                plt.xlabel("Prices")
-                plt.ylabel("Predicted prices")
-                plt.title("Prices vs Predicted prices")
-                plt.savefig(f"figures/price_preds_{n}.png")
+                print("\n \n rmse:", np.sqrt(test_mse), "nll", nlp)
+            # log val-set metrics over splits
             if mode == "SVGP":
                 results['epsilon'].append(np.inf)
             else:
