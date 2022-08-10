@@ -30,7 +30,7 @@ from dp_gp.approximate_inference.common_train_logic import (
     make_SVGP_model,
     simple_training_loop,
 )
-from dp_gp.dp_tools.dp_gd_optimizer import VectorizedDPKerasAdagradOptimizer
+from dp_gp.approximate_inference.dp_gd_optimizer import VectorizedDPKerasAdagradOptimizer
 
 # Hyperparameters
 FLAGS = flags.FLAGS
@@ -72,7 +72,7 @@ def main(argv):
             for n in range(FLAGS.n_folds):
                 # get cross-val splot
                 x_train, y_train, x_test, y_test = data.get_split(split=n)
-                # normalize
+                # normalize (in reality max and min values here would also have to be computed in a private fashion)
                 x_scaler = MinMaxScaler().fit(x_train)
                 y_scaler = MinMaxScaler().fit(y_train)
                 x_train, x_test = x_scaler.transform(x_train), x_scaler.transform(x_test)
@@ -80,12 +80,12 @@ def main(argv):
                 # setup training for different modes
                 if mode == "Local-DP":
                     # if we were complete kosher these max and min calculations would have to be privatised as well
-                    x_sens = np.max(x_train) - np.min(x_train)
-                    y_sens = np.max(y_train) - np.min(y_train)
+                    x_sens = np.linalg.norm(np.ones(shape=(x_train.shape[1])), ord=1)
+                    y_sens = np.amax(y_train) - np.amin(y_train) # no need to calculate vector valued sensitivity for scalars
                     print(f"\n \n ...... sens x: {x_sens}, y:{y_sens}")
                     x_train = laplace_mechanism(x_train, eps=FLAGS.epsilon, delta=0.0, sens=x_sens)
                     y_train = laplace_mechanism(y_train, eps=FLAGS.epsilon, delta=0.0, sens=y_sens)
-                elif mode == "DP-SVGP":
+                if mode == "DP-SVGP":
                     NOISE_MULT = compute_noise(
                             n=len(x_train),
                             batch_size=FLAGS.batch_size,
@@ -96,7 +96,7 @@ def main(argv):
                         )
                     print(f"found noise multiplier: {NOISE_MULT} for target epsilon: {FLAGS.epsilon}")
                     optimizer = VectorizedDPKerasAdagradOptimizer(l2_norm_clip=FLAGS.l2_clip, noise_multiplier=NOISE_MULT, lr=FLAGS.lr)
-                elif mode == "DP-SVGP" or mode == "SVGP":
+                elif mode == "Local-DP" or mode == "SVGP":
                     optimizer = tf.keras.optimizers.Adam(FLAGS.lr)
                 N = x_train.shape[0]
                 feature_dim = x_train.shape[1]

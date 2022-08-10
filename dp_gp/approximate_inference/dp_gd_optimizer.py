@@ -159,7 +159,7 @@ def make_vectorized_keras_optimizer_class(cls):
           # Add noise to summed gradients.
           noise_stddev = self._l2_norm_clip * self._noise_multiplier
           noise = tf.random.normal(
-              tf.shape(input=summed_gradient), stddev=noise_stddev)
+              tf.shape(input=summed_gradient), stddev=noise_stddev, dtype=g.dtype)
           noised_gradient = tf.add(summed_gradient, noise)
 
           # Normalize by number of microbatches and return.

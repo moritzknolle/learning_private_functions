@@ -6,7 +6,7 @@ from typing import Tuple
 import warnings
 
 from dp_gp.approximate_inference.psg_svgp import SVGP_psg
-from dp_gp.dp_tools.dp_gd_optimizer import (
+from dp_gp.approximate_inference.dp_gd_optimizer import (
     VectorizedDPKerasAdagradOptimizer,
     VectorizedDPKerasAdamOptimizer,
     VectorizedDPKerasSGDOptimizer,
@@ -55,7 +55,7 @@ def optimization_step(
     per-sample gradients are computing in vectorized fashion and privatised before being applied.
 
     Args:
-        model (gpflow.models.SVGP): an SVGP gpflow model, which inducing variables and hyperparameters we would like to learn
+        model (gpflow.models.SVGP): an SVGP gpflow model, with inducing variables and hyperparameters we would like to learn
         batch (Tuple[tf.Tensor, tf.Tensor]): a mini-batch of data
         optimizer (tf.keras.optimizers.Optimizer): An optimizer instance
         apply_dp (bool): Whether to apply the Gaussian mechanism of differential privacy to the update step
@@ -77,6 +77,51 @@ def optimization_step(
             optimizer.apply_gradients(zip(grads, model.trainable_variables))
             norms = None
     del tape
+    return batch_loss, norms
+
+
+# TODO fix documentation
+def optimization_step_natgrad(
+    model: gpflow.models.SVGP,
+    batch: Tuple[tf.Tensor, tf.Tensor],
+    optimizer: tf.keras.optimizers.Optimizer,
+    nat_grad_optimizer: tf.keras.optimizers.Optimizer,
+    apply_dp: bool = True,
+):
+    """Performs a single stochastic variatonal inference optimization update step given a model, mini-batch and optimizer. If apply_dp is set to True,
+    per-sample gradients are computing in vectorized fashion and privatised before being applied.
+
+    Args:
+        model (gpflow.models.SVGP): an SVGP gpflow model, with inducing variables and hyperparameters we would like to learn
+        batch (Tuple[tf.Tensor, tf.Tensor]): a mini-batch of data
+        optimizer (tf.keras.optimizers.Optimizer): An optimizer instance
+        apply_dp (bool): Whether to apply the Gaussian mechanism of differential privacy to the update step
+    """
+
+    if not isinstance(model, SVGP_psg):
+        raise ValueError(
+            "Computing per sample gradients requires model to be an instance of the SVGP_psg class"
+        )
+    # check q_mu and q_sqrt are set to non-trainable
+    with tf.GradientTape(
+        watch_accessed_variables=False, persistent=True
+    ) as tape_variational, tf.GradientTape(
+        watch_accessed_variables=False, persistent=True
+    ) as tape_hyp:
+        tape_hyp.watch(model.trainable_variables)
+        tape_variational.watch(tensor)
+        loss = model.training_loss(batch)
+        batch_loss = tf.math.reduce_mean(loss)
+        if apply_dp:
+            # compute gradients w.r.t hyper parameters
+            dp_grads, norms = optimizer.get_gradients(loss, model.trainable_variables)
+            optimizer.apply_gradients(zip(dp_grads, model.trainable_variables))
+            # compute gradients w.r.t variational parameters
+        else:
+            grads = tape.gradient(batch_loss, model.trainable_variables)
+            optimizer.apply_gradients(zip(grads, model.trainable_variables))
+            norms = None
+    del tape_variational, tape_hyp
     return batch_loss, norms
 
 
