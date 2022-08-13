@@ -17,7 +17,7 @@ from dp_gp.approximate_inference.common_train_logic import (
     make_SVGP_model,
     simple_training_loop,
 )
-from dp_gp.dp_tools.dp_gd_optimizer import VectorizedDPKerasAdamOptimizer
+from dp_gp.approximate_inference.dp_gd_optimizer import VectorizedDPKerasAdamOptimizer
 from utils import make_deterministic, plot_model
 
 # gpu setup
