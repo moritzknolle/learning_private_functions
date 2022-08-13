@@ -6,7 +6,7 @@ class SVGP_psg(gpflow.models.svgp.SVGP):
     """ SVGP subclass that returns a vector of per-sample ELBO's need to calculate per-sample gradients for DP-SGD.
     """
 
-    def elbo(self, data: RegressionData, reduce:bool=False) -> tf.Tensor:
+    def elbo(self, data: RegressionData, reduce:bool=False, scale_elbo=False) -> tf.Tensor:
         """
         This gives a variational bound (the evidence lower bound or ELBO) on
         the log marginal likelihood of the model.
@@ -16,14 +16,16 @@ class SVGP_psg(gpflow.models.svgp.SVGP):
         f_mean, f_var = self.predict_f(X, full_cov=False, full_output_cov=False)
         var_exp = self.likelihood.variational_expectations(f_mean, f_var, Y)
         if self.num_data is not None:
-            scale = tf.cast(self.num_data, kl.dtype)
+            num_data = tf.cast(self.num_data, kl.dtype)
+            minibatch_size = tf.cast(tf.shape(X)[0], kl.dtype)
+            scale = num_data / minibatch_size
         else:
             scale = tf.cast(1.0, kl.dtype)
         if reduce:
-            minibatch_size = tf.cast(tf.shape(X)[0], kl.dtype) 
-            scale = scale / minibatch_size
             out = tf.reduce_sum(var_exp) * scale - kl
         else:
+            if scale_elbo:
+                scale = tf.cast(self.num_data, kl.dtype)
             out = var_exp * scale - kl
         return out
     

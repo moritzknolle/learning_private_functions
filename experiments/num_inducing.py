@@ -32,11 +32,11 @@ EPOCHS = 70
 L2_CLIP = 10.0
 LR = 1e-2
 DELTA = round(1 / 4_000, 25)
-NUM_REPEATS = 5
-inducing_inputs = np.arange(5, 1_500, 1_500//15)
+NUM_REPEATS = 3
+inducing_inputs = np.arange(5, 1_000, 1_000//15)
 print("trying num inducing:", inducing_inputs)
 
-eps_range = np.linspace(0.1, 5.0, 5)
+eps_range = np.linspace(0.1, 5.0, 3)
 seeds = [random.randint(0, 1000) for _ in range(NUM_REPEATS*len(inducing_inputs))]
 
 results = {"NLL(train)":[], "RMSE(train)":[], "NLL(test)":[], "RMSE(test)":[], "l_mean":[], "l_std":[], "sigma_mean":[], "sigma_std":[], "eps":[], "l2_clip":[], "num_inducing":[]}
@@ -109,4 +109,4 @@ for e, eps in enumerate(eps_range):
 
 df = pd.DataFrame().from_dict(results)
 print(df)
-df.to_csv("./experiments/results/num_inducing_experiment_results.csv")
+df.to_csv("num_inducing_experiment_results.csv")

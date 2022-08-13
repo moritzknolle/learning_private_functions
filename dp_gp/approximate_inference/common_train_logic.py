@@ -131,7 +131,7 @@ def simple_training_loop(
     optimizer: tf.keras.optimizers.Optimizer,
     batch_size: int = 256,
     epochs: int = 5,
-    logging_batch_freq: int = 10,
+    logging_batch_freq: int = 25,
     apply_dp: bool = True,
     track_psg_norms: bool = False,
 ):
@@ -162,7 +162,7 @@ def simple_training_loop(
             raise ValueError(
                 f"Can't apply differential privacy with non-private optimizer: {optimizer}"
             )
-    losses, elbos = [], []
+    losses, elbos, elbos_scaled = [], [], []
     train_dataset = tf.data.Dataset.from_tensor_slices(
         (f64(x_train), f64(y_train))
     ).shuffle(x_train.shape[0])
@@ -180,6 +180,8 @@ def simple_training_loop(
                 pbar.update()
                 if i % logging_batch_freq == 0:
                     elbo = tf.math.reduce_mean(model.elbo(data))
+                    elbo_scaled = tf.math.reduce_mean(model.elbo(data, scale_elbo=True))
                     elbos.append(elbo.numpy())
-                    pbar.set_description(f"loss: {loss:.3f} ELBO: {elbo.numpy():.3f}")
-    return losses, elbos, norm_vals
+                    elbos_scaled.append(elbo_scaled.numpy())
+                    pbar.set_description(f"loss: {loss:.3f} ELBO: {elbo.numpy():.3f}, ELBO (scaled): {elbo_scaled.numpy()}")
+    return losses, elbos, elbos_scaled, norm_vals

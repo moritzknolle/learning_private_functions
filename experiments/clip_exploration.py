@@ -31,10 +31,9 @@ BATCH_SIZE = 128
 EPOCHS = 70
 LR = 1e-2
 DELTA = round(1 / 4_000, 25)
-NUM_REPEATS = 5
-EPS=2.0
+NUM_REPEATS = 3
 
-l2_clip_range = np.logspace(1, 3, num=25)
+l2_clip_range = np.geomspace(1, 500, num=15)
 eps_range = np.linspace(0.1, 3.0, 5)
 seeds = [random.randint(0, 1000) for _ in range(NUM_REPEATS)]
 
@@ -106,4 +105,4 @@ for l2_clip in l2_clip_range:
 
 df = pd.DataFrame().from_dict(results)
 print(df)
-df.to_csv("./experiments/results/clip_experiment_results.csv")
+df.to_csv("clip_experiment_results.csv")

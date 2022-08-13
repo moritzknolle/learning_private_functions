@@ -35,7 +35,7 @@ DELTA = round(1 / 4_000, 25)
 NUM_REPEATS = 5
 
 eps_range = np.geomspace(1e-2, 15, num=15)
-l2_clip_range = np.linspace(5.0, 150, 15)
+l2_clip_range = np.linspace(5.0, 75, 15)
 seeds = [random.randint(0, 1000) for _ in range(NUM_REPEATS)]
 
 results = {"NLL(train)":[], "RMSE(train)":[], "NLL(test)":[], "RMSE(test)":[], "l_mean":[], "l_std":[], "sigma_mean":[], "sigma_std":[], "eps":[]}
