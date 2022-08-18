@@ -30,7 +30,7 @@ from dp_gp.approximate_inference.common_train_logic import (
     make_SVGP_model,
     simple_training_loop,
 )
-from dp_gp.approximate_inference.dp_gd_optimizer import VectorizedDPKerasAdagradOptimizer
+from dp_gp.approximate_inference.dp_gd_optimizer import VectorizedDPKerasAdamOptimizer
 
 # Hyperparameters
 FLAGS = flags.FLAGS
@@ -83,8 +83,8 @@ def main(argv):
                     x_sens = np.linalg.norm(np.ones(shape=(x_train.shape[1])), ord=1)
                     y_sens = np.amax(y_train) - np.amin(y_train) # no need to calculate vector valued sensitivity for scalars
                     print(f"\n \n ...... sens x: {x_sens}, y:{y_sens}")
-                    x_train = laplace_mechanism(x_train, eps=FLAGS.epsilon, delta=0.0, sens=x_sens)
-                    y_train = laplace_mechanism(y_train, eps=FLAGS.epsilon, delta=0.0, sens=y_sens)
+                    x_train = laplace_mechanism(x_train, eps=FLAGS.epsilon/2, delta=0.0, sens=x_sens)
+                    y_train = laplace_mechanism(y_train, eps=FLAGS.epsilon/2, delta=0.0, sens=y_sens)
                 if mode == "DP-SVGP":
                     NOISE_MULT = compute_noise(
                             n=len(x_train),
@@ -95,7 +95,7 @@ def main(argv):
                             noise_lbd=0.05,
                         )
                     print(f"found noise multiplier: {NOISE_MULT} for target epsilon: {FLAGS.epsilon}")
-                    optimizer = VectorizedDPKerasAdagradOptimizer(l2_norm_clip=FLAGS.l2_clip, noise_multiplier=NOISE_MULT, lr=FLAGS.lr)
+                    optimizer = VectorizedDPKerasAdamOptimizer(l2_norm_clip=FLAGS.l2_clip, noise_multiplier=NOISE_MULT, lr=FLAGS.lr)
                 elif mode == "Local-DP" or mode == "SVGP":
                     optimizer = tf.keras.optimizers.Adam(FLAGS.lr)
                 N = x_train.shape[0]
@@ -103,7 +103,7 @@ def main(argv):
                 lengthscales=np.random.uniform(0.1, 5.0, size=(feature_dim))
                 kernel = gpflow.kernels.SquaredExponential(lengthscales=lengthscales)
                 model = make_SVGP_model(
-                    num_inducing=FLAGS.num_inducing, num_data=N, num_features=feature_dim, kernel=kernel
+                    num_inducing=FLAGS.num_inducing, num_data=N, num_features=feature_dim, kernel=kernel, learnable_inducing_variables=True
                 )
                 print_summary(model)
                 apply_dp = (mode == "DP-SVGP")
