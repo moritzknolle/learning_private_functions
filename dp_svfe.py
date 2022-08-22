@@ -118,7 +118,7 @@ def train_svi(
         print("using non private optimizer")
         opt = tf.keras.optimizers.Adam(learning_rate=lr)
 
-    train_losses, train_elbos, _ = simple_training_loop(
+    train_losses, train_elbos, elbos_scaled, _ = simple_training_loop(
         model=m,
         data=(X_train, y_train),
         optimizer=opt,
@@ -149,8 +149,8 @@ def train_svi(
     print(f"train NLL: {nll_train:.4f}, RMSE: {rmse_train:.3f}")
     print(f"test NLL: {nll_test:.4f}, RMSE: {rmse_test:.3f}")
 
-    l, sigma = m.kernel.lengthscales.numpy(), m.likelihood.variance.numpy()
-    return (train_elbos, train_losses), (nll_test, rmse_test), (nll_train, rmse_train), l, sigma
+    l, s, sigma = m.kernel.lengthscales.numpy(), m.kernel.variance.numpy(), m.likelihood.variance.numpy()
+    return  elbos_scaled, (nll_test, rmse_test), (nll_train, rmse_train), (l, s, sigma)
 
 
 def main(argv):

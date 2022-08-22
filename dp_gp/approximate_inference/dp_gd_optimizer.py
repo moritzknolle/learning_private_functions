@@ -105,7 +105,7 @@ def make_vectorized_keras_optimizer_class(cls):
       self._global_state = None
       self._was_dp_gradients_called = False
 
-    def _compute_gradients(self, loss, var_list, grad_loss=None, tape=None):
+    def compute_gradients(self, loss, var_list, grad_loss=None, tape=None):
       """DP-SGD version of base class method."""
 
       self._was_dp_gradients_called = True
