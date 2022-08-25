@@ -9,7 +9,9 @@ from gpflow.base import Parameter, _to_constrained
 
 Scalar = Union[float, tf.Tensor, np.ndarray]
 LossClosure = Callable[[], tf.Tensor]
-NatGradParameters = Union[Tuple[Parameter, Parameter], Tuple[Parameter, Parameter, "XiTransform"]]
+NatGradParameters = Union[
+    Tuple[Parameter, Parameter], Tuple[Parameter, Parameter, "XiTransform"]
+]
 
 __all__ = [
     "NaturalGradient",
@@ -24,17 +26,16 @@ __all__ = [
 # Abstract class and two implementations: XiNat and XiSqrtMeanVar.
 #
 
+
 def clip_gradients_vmap(g, l2_norm_clip):
-  """Clips gradients in a way that is compatible with vectorized_map."""
-  grads_flat = tf.nest.flatten(g)
-  squared_l2_norms = [
-      tf.reduce_sum(input_tensor=tf.square(g)) for g in grads_flat
-  ]
-  global_norm = tf.sqrt(tf.add_n(squared_l2_norms))
-  div = tf.maximum(global_norm / l2_norm_clip, 1.)
-  clipped_flat = [g / div for g in grads_flat]
-  clipped_grads = tf.nest.pack_sequence_as(g, clipped_flat)
-  return clipped_grads, global_norm
+    """Clips gradients in a way that is compatible with vectorized_map."""
+    grads_flat = tf.nest.flatten(g)
+    squared_l2_norms = [tf.reduce_sum(input_tensor=tf.square(g)) for g in grads_flat]
+    global_norm = tf.sqrt(tf.add_n(squared_l2_norms))
+    div = tf.maximum(global_norm / l2_norm_clip, 1.0)
+    clipped_flat = [g / div for g in grads_flat]
+    clipped_grads = tf.nest.pack_sequence_as(g, clipped_flat)
+    return clipped_grads, global_norm
 
 
 class XiTransform(metaclass=abc.ABCMeta):
@@ -47,7 +48,9 @@ class XiTransform(metaclass=abc.ABCMeta):
 
     @staticmethod
     @abc.abstractmethod
-    def meanvarsqrt_to_xi(mean: tf.Tensor, varsqrt: tf.Tensor) -> Tuple[tf.Tensor, tf.Tensor]:
+    def meanvarsqrt_to_xi(
+        mean: tf.Tensor, varsqrt: tf.Tensor
+    ) -> Tuple[tf.Tensor, tf.Tensor]:
         """
         Transforms the parameter `mean` and `varsqrt` to `xi1`, `xi2`
         :param mean: the mean parameter (N, D)
@@ -57,7 +60,9 @@ class XiTransform(metaclass=abc.ABCMeta):
 
     @staticmethod
     @abc.abstractmethod
-    def xi_to_meanvarsqrt(xi1: tf.Tensor, xi2: tf.Tensor) -> Tuple[tf.Tensor, tf.Tensor]:
+    def xi_to_meanvarsqrt(
+        xi1: tf.Tensor, xi2: tf.Tensor
+    ) -> Tuple[tf.Tensor, tf.Tensor]:
         """
         Transforms the parameter `xi1`, `xi2` to `mean`, `varsqrt`
         :param xi1: the ξ₁ parameter
@@ -84,11 +89,15 @@ class XiNat(XiTransform):
     """
 
     @staticmethod
-    def meanvarsqrt_to_xi(mean: tf.Tensor, varsqrt: tf.Tensor) -> Tuple[tf.Tensor, tf.Tensor]:
+    def meanvarsqrt_to_xi(
+        mean: tf.Tensor, varsqrt: tf.Tensor
+    ) -> Tuple[tf.Tensor, tf.Tensor]:
         return meanvarsqrt_to_natural(mean, varsqrt)
 
     @staticmethod
-    def xi_to_meanvarsqrt(xi1: tf.Tensor, xi2: tf.Tensor) -> Tuple[tf.Tensor, tf.Tensor]:
+    def xi_to_meanvarsqrt(
+        xi1: tf.Tensor, xi2: tf.Tensor
+    ) -> Tuple[tf.Tensor, tf.Tensor]:
         return natural_to_meanvarsqrt(xi1, xi2)
 
     @staticmethod
@@ -103,11 +112,15 @@ class XiSqrtMeanVar(XiTransform):
     """
 
     @staticmethod
-    def meanvarsqrt_to_xi(mean: tf.Tensor, varsqrt: tf.Tensor) -> Tuple[tf.Tensor, tf.Tensor]:
+    def meanvarsqrt_to_xi(
+        mean: tf.Tensor, varsqrt: tf.Tensor
+    ) -> Tuple[tf.Tensor, tf.Tensor]:
         return mean, varsqrt
 
     @staticmethod
-    def xi_to_meanvarsqrt(xi1: tf.Tensor, xi2: tf.Tensor) -> Tuple[tf.Tensor, tf.Tensor]:
+    def xi_to_meanvarsqrt(
+        xi1: tf.Tensor, xi2: tf.Tensor
+    ) -> Tuple[tf.Tensor, tf.Tensor]:
         return xi1, xi2
 
     @staticmethod
@@ -131,12 +144,12 @@ class NaturalGradient(tf.optimizers.Optimizer):
     """
 
     def __init__(
-        self, 
+        self,
         gamma: Scalar,
-        xi_transform: XiTransform = XiNat(), 
-        l2_norm_clip:float=10.0,
-        noise_multiplier:float=1.0,
-        name: Optional[str] = None
+        xi_transform: XiTransform = XiNat(),
+        l2_norm_clip: float = 10.0,
+        noise_multiplier: float = 1.0,
+        name: Optional[str] = None,
     ) -> None:
         """
         :param gamma: natgrad step length
@@ -181,7 +194,7 @@ class NaturalGradient(tf.optimizers.Optimizer):
         model,
         data,
         var_list: Sequence[NatGradParameters],
-        apply_dp:bool=False,
+        apply_dp: bool = False,
     ):
         """
         Computes gradients of loss_fn() w.r.t. q_mu and q_sqrt, and updates
@@ -199,35 +212,42 @@ class NaturalGradient(tf.optimizers.Optimizer):
             tape.watch(q_mu_vars + q_sqrt_vars)
             loss = model.training_loss(data)
             batch_loss = tf.reduce_mean(loss)
-        
+
         def reduce_noise_normalize_batch(g):
-          # Sum gradients over all microbatches.
-          summed_gradient = tf.reduce_sum(g, axis=0)
+            # Sum gradients over all microbatches.
+            summed_gradient = tf.reduce_sum(g, axis=0)
 
-          # Add noise to summed gradients.
-          noise_stddev = self.l2_norm_clip * self.noise_multiplier
-          noise = tf.random.normal(
-              tf.shape(input=summed_gradient), stddev=noise_stddev, dtype=g.dtype)
-          noised_gradient = tf.add(summed_gradient, noise)
+            # Add noise to summed gradients.
+            noise_stddev = self.l2_norm_clip * self.noise_multiplier
+            noise = tf.random.normal(
+                tf.shape(input=summed_gradient), stddev=noise_stddev, dtype=g.dtype
+            )
+            noised_gradient = tf.add(summed_gradient, noise)
 
-          # Normalize by number of microbatches and return.
-          return tf.truediv(noised_gradient,
-                            tf.cast(data[0].shape[0], tf.float64))
+            # Normalize by batchsize and return.
+            return tf.truediv(noised_gradient, tf.cast(data[0].shape[0], tf.float64))
 
-        # '@George' these are the only gradient computations that depend on the private data
-        # and thus the only gradients we need to privatise ...
         if apply_dp:
             q_mu_g, q_sqrt_g = tape.jacobian(loss, [q_mu_vars, q_sqrt_vars])
-            q_mu_grads_c, norms_q_mu = tf.vectorized_map(lambda g: clip_gradients_vmap(g, self.l2_norm_clip), q_mu_g)
-            q_sqrt_grads_c, norms_q_sqrt = tf.vectorized_map(lambda g: clip_gradients_vmap(g, self.l2_norm_clip), q_sqrt_g)
-            q_mu_grads = tf.nest.map_structure(reduce_noise_normalize_batch, q_mu_grads_c)
-            q_sqrt_grads = tf.nest.map_structure(reduce_noise_normalize_batch, q_sqrt_grads_c)
+            q_mu_grads_c, norms_q_mu = tf.vectorized_map(
+                lambda g: clip_gradients_vmap(g, self.l2_norm_clip), q_mu_g
+            )
+            q_sqrt_grads_c, norms_q_sqrt = tf.vectorized_map(
+                lambda g: clip_gradients_vmap(g, self.l2_norm_clip), q_sqrt_g
+            )
+            q_mu_grads = tf.nest.map_structure(
+                reduce_noise_normalize_batch, q_mu_grads_c
+            )
+            q_sqrt_grads = tf.nest.map_structure(
+                reduce_noise_normalize_batch, q_sqrt_grads_c
+            )
         else:
-          q_mu_grads, q_sqrt_grads = tape.gradient(batch_loss, [q_mu_vars, q_sqrt_vars])
+            q_mu_grads, q_sqrt_grads = tape.gradient(
+                batch_loss, [q_mu_vars, q_sqrt_vars]
+            )
         # NOTE that these are the gradients in *unconstrained* space
         return (q_mu_grads, q_sqrt_grads), loss, (norms_q_mu, norms_q_sqrt)
-    
-    
+
     def apply_gradients(
         self,
         q_mu_grads: tf.Tensor,
@@ -371,7 +391,9 @@ def swap_dimensions(
             if a_nd.shape.ndims != 2:  # pragma: no cover
                 raise ValueError("The mean parametrization must have 2 dimensions.")
             if b_dnn.shape.ndims != 3:  # pragma: no cover
-                raise ValueError("The covariance parametrization must have 3 dimensions.")
+                raise ValueError(
+                    "The covariance parametrization must have 3 dimensions."
+                )
             a_dn1 = tf.linalg.adjoint(a_nd)[:, :, None]
             A_dn1, B_dnn = method(a_dn1, b_dnn)
             A_nd = tf.linalg.adjoint(A_dn1[:, :, 0])
@@ -383,7 +405,9 @@ def swap_dimensions(
 
 
 @swap_dimensions
-def natural_to_meanvarsqrt(nat1: tf.Tensor, nat2: tf.Tensor) -> Tuple[tf.Tensor, tf.Tensor]:
+def natural_to_meanvarsqrt(
+    nat1: tf.Tensor, nat2: tf.Tensor
+) -> Tuple[tf.Tensor, tf.Tensor]:
     var_sqrt_inv = tf.linalg.cholesky(-2 * nat2)
     var_sqrt = _inverse_lower_triangular(var_sqrt_inv)
     S = tf.linalg.matmul(var_sqrt, var_sqrt, transpose_a=True)
@@ -394,32 +418,42 @@ def natural_to_meanvarsqrt(nat1: tf.Tensor, nat2: tf.Tensor) -> Tuple[tf.Tensor,
 
 
 @swap_dimensions
-def meanvarsqrt_to_natural(mu: tf.Tensor, s_sqrt: tf.Tensor) -> Tuple[tf.Tensor, tf.Tensor]:
+def meanvarsqrt_to_natural(
+    mu: tf.Tensor, s_sqrt: tf.Tensor
+) -> Tuple[tf.Tensor, tf.Tensor]:
     s_sqrt_inv = _inverse_lower_triangular(s_sqrt)
     s_inv = tf.linalg.matmul(s_sqrt_inv, s_sqrt_inv, transpose_a=True)
     return tf.linalg.matmul(s_inv, mu), -0.5 * s_inv
 
 
 @swap_dimensions
-def natural_to_expectation(nat1: tf.Tensor, nat2: tf.Tensor) -> Tuple[tf.Tensor, tf.Tensor]:
+def natural_to_expectation(
+    nat1: tf.Tensor, nat2: tf.Tensor
+) -> Tuple[tf.Tensor, tf.Tensor]:
     args = natural_to_meanvarsqrt(nat1, nat2, swap=False)
     return meanvarsqrt_to_expectation(*args, swap=False)
 
 
 @swap_dimensions
-def expectation_to_natural(eta1: tf.Tensor, eta2: tf.Tensor) -> Tuple[tf.Tensor, tf.Tensor]:
+def expectation_to_natural(
+    eta1: tf.Tensor, eta2: tf.Tensor
+) -> Tuple[tf.Tensor, tf.Tensor]:
     args = expectation_to_meanvarsqrt(eta1, eta2, swap=False)
     return meanvarsqrt_to_natural(*args, swap=False)
 
 
 @swap_dimensions
-def expectation_to_meanvarsqrt(eta1: tf.Tensor, eta2: tf.Tensor) -> Tuple[tf.Tensor, tf.Tensor]:
+def expectation_to_meanvarsqrt(
+    eta1: tf.Tensor, eta2: tf.Tensor
+) -> Tuple[tf.Tensor, tf.Tensor]:
     var = eta2 - tf.linalg.matmul(eta1, eta1, transpose_b=True)
     return eta1, tf.linalg.cholesky(var)
 
 
 @swap_dimensions
-def meanvarsqrt_to_expectation(m: tf.Tensor, v_sqrt: tf.Tensor) -> Tuple[tf.Tensor, tf.Tensor]:
+def meanvarsqrt_to_expectation(
+    m: tf.Tensor, v_sqrt: tf.Tensor
+) -> Tuple[tf.Tensor, tf.Tensor]:
     v = tf.linalg.matmul(v_sqrt, v_sqrt, transpose_b=True)
     return m, v + tf.linalg.matmul(m, m, transpose_b=True)
 
