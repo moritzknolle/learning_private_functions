@@ -24,7 +24,7 @@ Install dependencies
   conda env create -f environment.yml
 ```
 
-Training your first differentially private Gaussian process
+Train your first differentially private Gaussian process
 
 ```bash
   python dp_svfe.py
