@@ -24,6 +24,18 @@ __all__ = [
 # Abstract class and two implementations: XiNat and XiSqrtMeanVar.
 #
 
+def clip_gradients_vmap(g, l2_norm_clip):
+  """Clips gradients in a way that is compatible with vectorized_map."""
+  grads_flat = tf.nest.flatten(g)
+  squared_l2_norms = [
+      tf.reduce_sum(input_tensor=tf.square(g)) for g in grads_flat
+  ]
+  global_norm = tf.sqrt(tf.add_n(squared_l2_norms))
+  div = tf.maximum(global_norm / l2_norm_clip, 1.)
+  clipped_flat = [g / div for g in grads_flat]
+  clipped_grads = tf.nest.pack_sequence_as(g, clipped_flat)
+  return clipped_grads, global_norm
+
 
 class XiTransform(metaclass=abc.ABCMeta):
     """
@@ -119,7 +131,12 @@ class NaturalGradient(tf.optimizers.Optimizer):
     """
 
     def __init__(
-        self, gamma: Scalar, xi_transform: XiTransform = XiNat(), name: Optional[str] = None
+        self, 
+        gamma: Scalar,
+        xi_transform: XiTransform = XiNat(), 
+        l2_norm_clip:float=10.0,
+        noise_multiplier:float=1.0,
+        name: Optional[str] = None
     ) -> None:
         """
         :param gamma: natgrad step length
@@ -130,6 +147,8 @@ class NaturalGradient(tf.optimizers.Optimizer):
         super().__init__(name)
         self.gamma = gamma
         self.xi_transform = xi_transform
+        self.l2_norm_clip = l2_norm_clip
+        self.noise_multiplier = noise_multiplier
 
     def minimize(
         self,
@@ -153,15 +172,17 @@ class NaturalGradient(tf.optimizers.Optimizer):
         interface are also possible.
         """
         parameters = [(v[0], v[1], (v[2] if len(v) > 2 else None)) for v in var_list]  # type: ignore[misc]
-        self._natgrad_steps(loss_fn, parameters)
+        (q_mu_grads, q_sqrt_grads), loss = self.get_gradients(loss_fn, parameters)
+        self.apply_gradients(q_mu_grads, q_sqrt_grads, parameters)
+        return loss
 
-
-    # TODO implement this to compute DP-SGD style gradients
-    def _natgrad_steps(
+    def get_gradients(
         self,
-        loss_fn: LossClosure,
-        parameters: Sequence[Tuple[Parameter, Parameter, Optional[XiTransform]]],
-    ) -> None:
+        model,
+        data,
+        var_list: Sequence[NatGradParameters],
+        apply_dp:bool=False,
+    ):
         """
         Computes gradients of loss_fn() w.r.t. q_mu and q_sqrt, and updates
         these parameters using the natgrad backwards step, for all sets of
@@ -169,22 +190,60 @@ class NaturalGradient(tf.optimizers.Optimizer):
         :param loss_fn: Loss function.
         :param parameters: List of tuples (q_mu, q_sqrt, xi_transform)
         """
+        parameters = [(v[0], v[1], (v[2] if len(v) > 2 else None)) for v in var_list]  # type: ignore[misc]
         q_mus, q_sqrts, xis = zip(*parameters)
         q_mu_vars = [p.unconstrained_variable for p in q_mus]
         q_sqrt_vars = [p.unconstrained_variable for p in q_sqrts]
 
         with tf.GradientTape(watch_accessed_variables=False) as tape:
             tape.watch(q_mu_vars + q_sqrt_vars)
-            loss = loss_fn()
+            loss = model.training_loss(data)
+            batch_loss = tf.reduce_mean(loss)
+        
+        def reduce_noise_normalize_batch(g):
+          # Sum gradients over all microbatches.
+          summed_gradient = tf.reduce_sum(g, axis=0)
 
-        q_mu_grads, q_sqrt_grads = tape.gradient(loss, [q_mu_vars, q_sqrt_vars])
+          # Add noise to summed gradients.
+          noise_stddev = self.l2_norm_clip * self.noise_multiplier
+          noise = tf.random.normal(
+              tf.shape(input=summed_gradient), stddev=noise_stddev, dtype=g.dtype)
+          noised_gradient = tf.add(summed_gradient, noise)
+
+          # Normalize by number of microbatches and return.
+          return tf.truediv(noised_gradient,
+                            tf.cast(data[0].shape[0], tf.float64))
+
+        # '@George' these are the only gradient computations that depend on the private data
+        # and thus the only gradients we need to privatise ...
+        if apply_dp:
+            q_mu_g, q_sqrt_g = tape.jacobian(loss, [q_mu_vars, q_sqrt_vars])
+            q_mu_grads_c, norms_q_mu = tf.vectorized_map(lambda g: clip_gradients_vmap(g, self.l2_norm_clip), q_mu_g)
+            q_sqrt_grads_c, norms_q_sqrt = tf.vectorized_map(lambda g: clip_gradients_vmap(g, self.l2_norm_clip), q_sqrt_g)
+            q_mu_grads = tf.nest.map_structure(reduce_noise_normalize_batch, q_mu_grads_c)
+            q_sqrt_grads = tf.nest.map_structure(reduce_noise_normalize_batch, q_sqrt_grads_c)
+        else:
+          q_mu_grads, q_sqrt_grads = tape.gradient(batch_loss, [q_mu_vars, q_sqrt_vars])
         # NOTE that these are the gradients in *unconstrained* space
-
+        return (q_mu_grads, q_sqrt_grads), loss, (norms_q_mu, norms_q_sqrt)
+    
+    
+    def apply_gradients(
+        self,
+        q_mu_grads: tf.Tensor,
+        q_sqrt_grads: tf.Tensor,
+        var_list: Sequence[NatGradParameters],
+    ):
+        parameters = [(v[0], v[1], (v[2] if len(v) > 2 else None)) for v in var_list]  # type: ignore[misc]
+        q_mus, q_sqrts, xis = zip(*parameters)
+        # calculate inverse fisher information and perform natural gradient update steps
         with tf.name_scope(f"{self._name}/natural_gradient_steps"):
             for q_mu_grad, q_sqrt_grad, q_mu, q_sqrt, xi_transform in zip(
                 q_mu_grads, q_sqrt_grads, q_mus, q_sqrts, xis
             ):
-                self._natgrad_apply_gradients(q_mu_grad, q_sqrt_grad, q_mu, q_sqrt, xi_transform)
+                self._natgrad_apply_gradients(
+                    q_mu_grad, q_sqrt_grad, q_mu, q_sqrt, xi_transform
+                )
 
     def _assert_shapes(self, q_mu: tf.Tensor, q_sqrt: tf.Tensor) -> None:
         tf.debugging.assert_shapes(
@@ -377,4 +436,3 @@ def _inverse_lower_triangular(M: tf.Tensor) -> tf.Tensor:
     D, N = tf.shape(M)[0], tf.shape(M)[1]
     I_dnn = tf.eye(N, dtype=M.dtype)[None, :, :] * tf.ones((D, 1, 1), dtype=M.dtype)
     return tf.linalg.triangular_solve(M, I_dnn)
-

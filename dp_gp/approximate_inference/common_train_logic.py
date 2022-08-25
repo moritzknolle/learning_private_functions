@@ -2,7 +2,7 @@ import numpy as np
 import tensorflow as tf
 import gpflow
 from tqdm import tqdm
-from typing import Tuple
+from typing import Tuple, List
 import warnings
 
 from dp_gp.approximate_inference.psg_svgp import SVGP_psg
@@ -11,6 +11,7 @@ from dp_gp.approximate_inference.dp_gd_optimizer import (
     VectorizedDPKerasAdamOptimizer,
     VectorizedDPKerasSGDOptimizer,
 )
+from dp_gp.approximate_inference.dp_nat_grad_opt import NaturalGradient
 
 dtype = np.float64
 gpflow.config.set_default_float(dtype)
@@ -84,8 +85,8 @@ def optimization_step(
 def optimization_step_natgrad(
     model: gpflow.models.SVGP,
     batch: Tuple[tf.Tensor, tf.Tensor],
-    optimizer: tf.keras.optimizers.Optimizer,
-    nat_grad_optimizer: tf.keras.optimizers.Optimizer,
+    optimizer: NaturalGradient,
+    variational_params:List,
     apply_dp: bool = True,
 ):
     """Performs a single stochastic variatonal inference optimization update step given a model, mini-batch and optimizer. If apply_dp is set to True,
@@ -102,26 +103,9 @@ def optimization_step_natgrad(
         raise ValueError(
             "Computing per sample gradients requires model to be an instance of the SVGP_psg class"
         )
-    # check q_mu and q_sqrt are set to non-trainable
-    with tf.GradientTape(
-        watch_accessed_variables=False, persistent=True
-    ) as tape_variational, tf.GradientTape(
-        watch_accessed_variables=False, persistent=True
-    ) as tape_hyp:
-        tape_hyp.watch(model.trainable_variables)
-        tape_variational.watch(tensor)
-        loss = model.training_loss(batch)
-        batch_loss = tf.math.reduce_mean(loss)
-        if apply_dp:
-            # compute gradients w.r.t hyper parameters
-            dp_grads, norms = optimizer.get_gradients(loss, model.trainable_variables)
-            optimizer.apply_gradients(zip(dp_grads, model.trainable_variables))
-            # compute gradients w.r.t variational parameters
-        else:
-            grads = tape.gradient(batch_loss, model.trainable_variables)
-            optimizer.apply_gradients(zip(grads, model.trainable_variables))
-            norms = None
-    del tape_variational, tape_hyp
+    (q_mu_grads, q_sqrt_grads), loss, norms = optimizer.get_gradients(model=model, data=batch, var_list=variational_params, apply_dp=True)
+    optimizer.apply_gradients(q_mu_grads, q_sqrt_grads, variational_params)
+    batch_loss = tf.reduce_mean(loss)
     return batch_loss, norms
 
 
