@@ -3,6 +3,7 @@
 
 This project explores combining sparse Gaussian process approximations with differential privacy, to obtain reliable, private models.
 
+![Alt text](figs/main_fig.png?raw=true "Private vs. non-private sparse GP approximations")
 
 ## Getting started 
 
