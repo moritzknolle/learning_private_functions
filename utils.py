@@ -4,7 +4,6 @@ import random
 import matplotlib.pyplot as plt
 import matplotlib as mpl
 import seaborn as sns
-from sklearn.neighbors import KernelDensity
 from typing import Tuple
 
 dtype = np.float64
@@ -76,29 +75,3 @@ def plot_model(
     plt.ylim(ylim)
     sns.despine()
     plt.tight_layout()
-
-
-def plot_grad_norms(
-    norms: list, max_norm: int, cmap: str = "viridis", n_sample=100, vis_mult=100
-):
-    cmap = mpl.cm.get_cmap(cmap)
-    fig = plt.figure(figsize=(5, 10))
-    kde = KernelDensity(kernel="tophat", bandwidth=2.0)
-    X_plot = np.linspace(0, max_norm, 500)[:, None]
-
-    for i, norm_vals in enumerate(norms):
-        if i % n_sample == 0:
-            kde.fit(norm_vals[:, None])
-            log_dens = kde.score_samples(X_plot)
-            color = cmap(i / len(norms))
-            plt.plot(X_plot[:, 0], vis_mult * np.exp(log_dens) + i, color=color)
-            plt.fill_between(
-                X_plot[:, 0],
-                vis_mult * np.exp(log_dens) + i,
-                i,
-                color=color,
-                zorder=300 - i,
-            )
-
-    plt.xlim((0, max_norm))
-    plt.ylim((-1, len(norms) + 50))
