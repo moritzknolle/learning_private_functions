@@ -3,7 +3,7 @@ import gpflow
 from gpflow.base import RegressionData
 
 class SVGP_psg(gpflow.models.svgp.SVGP):
-    """ SVGP subclass that returns a vector of per-sample ELBO's need to calculate per-sample gradients for DP-SGD.
+    """ SVGP subclass that returns a vector of per-sample ELBO's needed to calculate per-sample gradients for DP-SGD.
     """
 
     def elbo(self, data: RegressionData, reduce:bool=False, scale_elbo=False) -> tf.Tensor:

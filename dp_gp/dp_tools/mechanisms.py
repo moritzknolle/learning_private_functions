@@ -17,7 +17,6 @@ def laplace_mechanism(inp_arr: np.ndarray, eps: float, delta: float, sens: float
     return priv_out
 
 
-# TODO adapt to analytic Gaussian mechanism
 def gauss_mechanism(inp_arr: np.ndarray, eps: float, delta: float, sens: float):
     """Applies the Gaussian mechanism (Balle and Wang, 2018) to achieve (eps, delta) differential privacy for inp_arr
     Args:

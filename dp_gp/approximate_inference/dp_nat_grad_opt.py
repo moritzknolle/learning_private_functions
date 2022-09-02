@@ -1,3 +1,4 @@
+# adapted from https://github.com/GPflow/GPflow/blob/develop/gpflow/optimizers/natgrad.py
 import abc
 import functools
 from typing import Any, Callable, Dict, Optional, Sequence, Tuple, Union

@@ -10,7 +10,10 @@ dtype = np.float64
 
 
 def make_deterministic(seed: int = 1234):
-    """Makes PyTorch deterministic for reproducibility."""
+    """Makes PyTorch deterministic for reproducibility.
+        Args:
+            seed (int): seed value to set
+    """
     random.seed(seed)
     np.random.seed(seed)
     tf.keras.utils.set_random_seed(1)
@@ -25,8 +28,23 @@ def plot_model(
     title="",
     ms: str = "10",
     predict_y: bool = True,
+    alpha=0.2,
     fig_size: Tuple = (10, 6),
+    show_legend=True,
 ):
+    """Produces a nice plot of a Gaussian process model.
+        Args:
+            model (gpflow.model): a GPflow model instance
+            train_data (tuple[np.ndarray, np.ndarray]): tuple containing the training data to plot (in blue)
+            test_data (tuple[np.ndarray, np.ndarray]): tuple containing the test data to plot (in orange)
+            is_svgp (bool) : if model is an SVGP model, this will cause inducing inputs to be plotted
+            title (str): matplotlib title for figure
+            ms (str(int)): marker-size for data scatter plot
+            predict_y (bool): whether to predict observations 'y' or function values 'f'
+            alpha (float): alpha (opacity) value for data points
+            fig_size (tuple(int, int)): figure size
+            show_legend (bool): whether to plot a legend
+    """ 
     x, y = train_data
     plt.figure(figsize=fig_size)
     ylim = (-2.2, 2.2)
@@ -36,7 +54,7 @@ def plot_model(
         model.predict_y(pX) if predict_y else model.predict_f(pX)
     )  # Predict Y values at test locations
     plt.plot(
-        x, y, ".", label="training points", alpha=0.2, markersize=ms, color="#264185"
+        x, y, ".", label="training points", alpha=alpha, markersize=ms, color="#264185"
     )
     if test_data is not None:
         x_test, y_test = test_data
@@ -71,7 +89,7 @@ def plot_model(
             alpha=0.5,
             color="black",
         )
-    plt.legend(loc="lower right")
+    plt.legend(loc="lower right") if show_legend else 0
     plt.ylim(ylim)
     sns.despine()
     plt.tight_layout()

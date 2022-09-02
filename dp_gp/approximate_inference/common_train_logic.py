@@ -53,7 +53,7 @@ def optimization_step(
     apply_dp: bool = True,
 ):
     """Performs a single stochastic variatonal inference optimization update step given a model, mini-batch and optimizer. If apply_dp is set to True,
-    per-sample gradients are computing in vectorized fashion and privatised before being applied.
+    per-sample gradients are computed in vectorized fashion and privatised before being applied.
 
     Args:
         model (gpflow.models.SVGP): an SVGP gpflow model, with inducing variables and hyperparameters we would like to learn
@@ -81,7 +81,6 @@ def optimization_step(
     return batch_loss, norms
 
 
-# TODO fix documentation
 def optimization_step_natgrad(
     model: gpflow.models.SVGP,
     batch: Tuple[tf.Tensor, tf.Tensor],
@@ -89,8 +88,8 @@ def optimization_step_natgrad(
     variational_params:List,
     apply_dp: bool = True,
 ):
-    """Performs a single stochastic variatonal inference optimization update step given a model, mini-batch and optimizer. If apply_dp is set to True,
-    per-sample gradients are computing in vectorized fashion and privatised before being applied.
+    """Performs a single natural gradient update on the variatonal parameters given a model, mini-batch and natural gradient optimizer. If apply_dp is set to True,
+    per-sample gradients are computed in vectorized fashion and privatised before being applied.
 
     Args:
         model (gpflow.models.SVGP): an SVGP gpflow model, with inducing variables and hyperparameters we would like to learn
