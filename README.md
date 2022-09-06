@@ -28,6 +28,6 @@ Install dependencies
 Train your first differentially private Gaussian process
 
 ```bash
-  python dp_svfe.py
+  python dp_svgp.py
 ```
 
